@@ -144,7 +144,7 @@ class ApiClient:
             else:
                 logger.warning("No se pudo obtener el perfil del usuario")
 
-            return result
+            return result.get("user", None)
 
         except Exception as e:
             logger.error(f"Error al obtener perfil de usuario: {e}")

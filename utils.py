@@ -114,36 +114,6 @@ def validate_coordinates(lat: float, lon: float) -> bool:
     """
     return -90 <= lat <= 90 and -180 <= lon <= 180
 
-
-def format_vehicle_data(vehicle: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Formatea los datos del vehículo para envío a clientes.
-
-    Args:
-        vehicle: Datos raw del vehículo
-
-    Returns:
-        Dict: Datos formateados del vehículo
-    """
-    try:
-        return {
-            "id": vehicle.get("id"),
-            "name": vehicle.get("name"),
-            "license_plate": vehicle.get("name"),  # Asumiendo que name es la matrícula
-            "lat": float(vehicle.get("lat", 0)),
-            "lng": float(vehicle.get("lng", 0)),
-            "speed": float(vehicle.get("speed", 0)),
-            "course": float(vehicle.get("course", 0)),
-            "status": vehicle.get("status", "unknown"),
-            "last_update": vehicle.get("time"),
-            "distance": vehicle.get("distance"),  # Si está disponible
-            "attributes": vehicle.get("attributes", {}),
-        }
-    except (ValueError, TypeError) as e:
-        logger.warning(f"Error al formatear datos del vehículo: {e}")
-        return vehicle
-
-
 def create_error_message(error: str, code: str = "ERROR") -> Dict[str, Any]:
     """
     Crea un mensaje de error estandarizado.

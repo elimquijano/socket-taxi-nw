@@ -477,14 +477,18 @@ class ConnectionManager:
             vehicle_updates: Lista de vehículos actualizados
         """
         if not vehicle_updates or not self.drivers:
+            logger.warning("Broadcast a conductores omitido: no hay actualizaciones o no hay conductores conectados.")
             return
+
+        logger.debug(f"Iniciando broadcast a {len(self.drivers)} conductores. Conductores conectados: {list(self.drivers.keys())}")
 
         for vehicle in vehicle_updates:
             license_plate = vehicle.get("license_plate") or vehicle.get("name")
+            logger.debug(f"Procesando actualización para vehículo con matrícula: {license_plate}")
 
             if license_plate in self.drivers:
                 websocket = self.drivers[license_plate]
-
+                logger.debug(f"Conductor encontrado para {license_plate}. Enviando actualización.")
                 try:
                     message = create_success_message(vehicle, "vehicle_update")
                     await self._send_message(websocket, message)
@@ -497,6 +501,8 @@ class ConnectionManager:
                     logger.error(
                         f"Error enviando actualización a conductor {license_plate}: {e}"
                     )
+            else:
+                logger.warning(f"No se encontró conductor conectado para la matrícula: {license_plate}")
 
     async def broadcast_to_passengers(self, vehicle_updates: List[Dict[str, Any]]):
         """

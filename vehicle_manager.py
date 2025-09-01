@@ -5,8 +5,7 @@ Gestor de vehículos que se conecta al servicio WebSocket externo.
 import asyncio
 import json
 import websockets
-from typing import Dict, Any, Callable, Optional
-from utils import format_vehicle_data
+from typing import Dict, Any, Optional
 from logger_config import get_logger
 
 logger = get_logger(__name__)
@@ -121,7 +120,6 @@ class VehicleManager:
         """
         try:
             data = json.loads(message)
-            print(data)
 
             # Log del mensaje recibido (solo en debug)
             logger.debug(f"Mensaje recibido: {len(message)} caracteres")
@@ -130,7 +128,7 @@ class VehicleManager:
             devices = data.get("devices", [])
 
             if not devices:
-                logger.debug("No hay dispositivos en el mensaje recibido")
+                logger.warning("No hay dispositivos en el mensaje recibido")
                 return
 
             # Actualizar el almacén de datos
@@ -166,15 +164,9 @@ class VehicleManager:
                     logger.warning("Dispositivo sin 'name' ignorado")
                     continue
 
-                # Formatear los datos del vehículo
-                formatted_vehicle = format_vehicle_data(device)
-
-                # Verificar si hay cambios significativos
-                if self._has_significant_changes(vehicle_id, formatted_vehicle):
-                    self.vehicle_data_store[vehicle_id] = formatted_vehicle
-                    updated_vehicles.append(formatted_vehicle)
-
-                    logger.debug(f"Vehículo actualizado: {vehicle_id}")
+                self.vehicle_data_store[vehicle_id] = device
+                updated_vehicles.append(device)
+                logger.debug(f"Vehículo actualizado: {vehicle_id}")
 
             except Exception as e:
                 logger.error(f"Error actualizando vehículo: {e}")
@@ -185,49 +177,6 @@ class VehicleManager:
 
         return updated_vehicles
 
-    def _has_significant_changes(
-        self, vehicle_id: str, new_data: Dict[str, Any]
-    ) -> bool:
-        """
-        Verifica si hay cambios significativos en los datos del vehículo.
-
-        Args:
-            vehicle_id: ID del vehículo
-            new_data: Nuevos datos del vehículo
-
-        Returns:
-            bool: True si hay cambios significativos
-        """
-        if vehicle_id not in self.vehicle_data_store:
-            return True
-
-        old_data = self.vehicle_data_store[vehicle_id]
-
-        # Verificar cambios en campos críticos
-        critical_fields = ["lat", "lng", "speed", "course", "status"]
-
-        for field in critical_fields:
-            old_value = old_data.get(field)
-            new_value = new_data.get(field)
-
-            # Para coordenadas y speed, verificar cambios significativos
-            if field in ["lat", "lng"]:
-                if (
-                    abs(float(new_value or 0) - float(old_value or 0)) > 0.0001
-                ):  # ~10 metros
-                    return True
-            elif field == "speed":
-                if abs(float(new_value or 0) - float(old_value or 0)) > 0.5:  # 0.5 km/h
-                    return True
-            elif field == "course":
-                if abs(float(new_value or 0) - float(old_value or 0)) > 5:  # 5 grados
-                    return True
-            else:
-                if old_value != new_value:
-                    return True
-
-        return False
-
     async def _notify_clients(self, updated_vehicles: list):
         """
         Notifica a los clientes sobre las actualizaciones de vehículos.
@@ -235,6 +184,9 @@ class VehicleManager:
         Args:
             updated_vehicles: Lista de vehículos actualizados
         """
+        logger.debug(
+            f"Notificando a clientes sobre {len(updated_vehicles)} vehículos actualizados."
+        )
         try:
             # Notificar a conductores
             await self.connection_manager.broadcast_to_drivers(updated_vehicles)
