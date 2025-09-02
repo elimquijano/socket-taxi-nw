@@ -551,16 +551,12 @@ class ConnectionManager:
             vehicle_updates: Lista de vehículos actualizados
         """
         try:
-            logger.info(f"Enviando vehículos filtrados a pasajero: {passenger_data}")
             # Filtrar vehículos por proximidad
             nearby_vehicles = filter_vehicles_by_proximity(
                 vehicle_updates,
                 passenger_data["latitude"],
                 passenger_data["longitude"],
                 passenger_data["zoom"],
-            )
-            logger.info(
-                f"Vehículos filtrados para pasajero {passenger_data}: {nearby_vehicles}"
             )
 
             if nearby_vehicles:
