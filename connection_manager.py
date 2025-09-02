@@ -12,7 +12,6 @@ from utils import (
     validate_coordinates,
     create_error_message,
     create_success_message,
-    parse_zoom_level,
 )
 
 from logger_config import get_logger
@@ -69,7 +68,7 @@ class ConnectionManager:
             api_key = query_params.get("api_key", [None])[0]
             lat = query_params.get("lat", [None])[0]
             lng = query_params.get("lng", [None])[0]
-            zoom = query_params.get("zoom", [5])[0]  # Default zoom 5
+            zoom = query_params.get("zoom", [1000])[0]  # Default zoom 1000 metros
 
             if token:
                 # Manejar conexión de conductor
@@ -241,7 +240,7 @@ class ConnectionManager:
                 await websocket.close(code=1008, reason="Coordenadas inválidas")
                 return
 
-            zoom_level = parse_zoom_level(zoom)
+            zoom_level = int(zoom)
 
             # Registrar pasajero
             passenger_data = {
@@ -373,7 +372,7 @@ class ConnectionManager:
         try:
             new_lat = float(data.get("latitude", 0))
             new_lng = float(data.get("longitude", 0))
-            new_zoom = parse_zoom_level(data.get("zoom", 5))
+            new_zoom = int(data.get("zoom", 1000))
 
             if validate_coordinates(new_lat, new_lng):
                 # Actualizar datos del pasajero
@@ -477,18 +476,26 @@ class ConnectionManager:
             vehicle_updates: Lista de vehículos actualizados
         """
         if not vehicle_updates or not self.drivers:
-            logger.warning("Broadcast a conductores omitido: no hay actualizaciones o no hay conductores conectados.")
+            logger.warning(
+                "Broadcast a conductores omitido: no hay actualizaciones o no hay conductores conectados."
+            )
             return
 
-        logger.debug(f"Iniciando broadcast a {len(self.drivers)} conductores. Conductores conectados: {list(self.drivers.keys())}")
+        logger.debug(
+            f"Iniciando broadcast a {len(self.drivers)} conductores. Conductores conectados: {list(self.drivers.keys())}"
+        )
 
         for vehicle in vehicle_updates:
             license_plate = vehicle.get("license_plate") or vehicle.get("name")
-            logger.debug(f"Procesando actualización para vehículo con matrícula: {license_plate}")
+            logger.debug(
+                f"Procesando actualización para vehículo con matrícula: {license_plate}"
+            )
 
             if license_plate in self.drivers:
                 websocket = self.drivers[license_plate]
-                logger.debug(f"Conductor encontrado para {license_plate}. Enviando actualización.")
+                logger.debug(
+                    f"Conductor encontrado para {license_plate}. Enviando actualización."
+                )
                 try:
                     message = create_success_message(vehicle, "vehicle_update")
                     await self._send_message(websocket, message)
@@ -502,7 +509,9 @@ class ConnectionManager:
                         f"Error enviando actualización a conductor {license_plate}: {e}"
                     )
             else:
-                logger.warning(f"No se encontró conductor conectado para la matrícula: {license_plate}")
+                logger.warning(
+                    f"No se encontró conductor conectado para la matrícula: {license_plate}"
+                )
 
     async def broadcast_to_passengers(self, vehicle_updates: List[Dict[str, Any]]):
         """
@@ -542,12 +551,16 @@ class ConnectionManager:
             vehicle_updates: Lista de vehículos actualizados
         """
         try:
+            logger.info(f"Enviando vehículos filtrados a pasajero: {passenger_data}")
             # Filtrar vehículos por proximidad
             nearby_vehicles = filter_vehicles_by_proximity(
                 vehicle_updates,
                 passenger_data["latitude"],
                 passenger_data["longitude"],
                 passenger_data["zoom"],
+            )
+            logger.info(
+                f"Vehículos filtrados para pasajero {passenger_data}: {nearby_vehicles}"
             )
 
             if nearby_vehicles:

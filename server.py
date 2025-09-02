@@ -40,6 +40,8 @@ class TaxiServer:
         self.vehicle_manager: Optional[VehicleManager] = None
         self.server: Optional[websockets.WebSocketServer] = None
         self.running = False
+        self.vehicle_task: Optional[asyncio.Task] = None
+        self.stats_task: Optional[asyncio.Task] = None
 
         # Cargar configuración desde variables de entorno
         self._load_config()
@@ -155,7 +157,7 @@ class TaxiServer:
             )
 
             # Iniciar gestor de vehículos en segundo plano
-            vehicle_task = asyncio.create_task(
+            self.vehicle_task = asyncio.create_task(
                 self.vehicle_manager.start(self.external_ws_url)
             )
 
@@ -173,11 +175,12 @@ class TaxiServer:
             )
 
             # Estadísticas periódicas
-            stats_task = asyncio.create_task(self._log_periodic_stats())
+            self.stats_task = asyncio.create_task(self._log_periodic_stats())
 
             # Esperar hasta que se solicite el cierre
             try:
-                await asyncio.gather(vehicle_task, stats_task, return_exceptions=True)
+                if self.vehicle_task and self.stats_task:
+                    await asyncio.gather(self.vehicle_task, self.stats_task, return_exceptions=True)
             except asyncio.CancelledError:
                 logger.info("Tareas principales canceladas")
 
@@ -192,6 +195,12 @@ class TaxiServer:
 
         logger.info("🛑 Iniciando cierre graceful del servidor...")
         self.running = False
+
+        # Cancelar tareas en segundo plano para que el gather en start() termine
+        if self.stats_task and not self.stats_task.done():
+            self.stats_task.cancel()
+        if self.vehicle_task and not self.vehicle_task.done():
+            self.vehicle_task.cancel()
 
         try:
             # Detener gestor de vehículos

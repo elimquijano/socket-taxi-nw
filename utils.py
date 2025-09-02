@@ -3,47 +3,19 @@ Utilidades y funciones auxiliares para el sistema de taxi en tiempo real.
 """
 
 import math
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any
+import re
+from shapely.geometry import Point, Polygon
 from logger_config import get_logger
 
 logger = get_logger(__name__)
-
-
-def calculate_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    """
-    Calcula la distancia en metros entre dos puntos GPS usando la fórmula de Haversine.
-
-    Args:
-        lat1, lon1: Latitud y longitud del primer punto
-        lat2, lon2: Latitud y longitud del segundo punto
-
-    Returns:
-        float: Distancia en metros entre los dos puntos
-    """
-    # Radio de la Tierra en metros
-    R = 6371000
-
-    # Convertir grados a radianes
-    phi1 = math.radians(lat1)
-    phi2 = math.radians(lat2)
-    delta_phi = math.radians(lat2 - lat1)
-    delta_lambda = math.radians(lon2 - lon1)
-
-    # Fórmula de Haversine
-    a = (
-        math.sin(delta_phi / 2) ** 2
-        + math.cos(phi1) * math.cos(phi2) * math.sin(delta_lambda / 2) ** 2
-    )
-    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-
-    return R * c
 
 
 def filter_vehicles_by_proximity(
     vehicles: List[Dict[str, Any]],
     passenger_lat: float,
     passenger_lon: float,
-    zoom_level: int,
+    max_distance: int = 1000,
 ) -> List[Dict[str, Any]]:
     """
     Filtra vehículos basándose en la proximidad al pasajero según el nivel de zoom.
@@ -52,52 +24,33 @@ def filter_vehicles_by_proximity(
         vehicles: Lista de vehículos con coordenadas
         passenger_lat: Latitud del pasajero
         passenger_lon: Longitud del pasajero
-        zoom_level: Nivel de zoom (mayor número = menor radio)
+        max_distance: Radio en metros
 
     Returns:
         List[Dict]: Lista de vehículos filtrados dentro del radio
     """
-    # Mapeo de zoom a radio en metros
-    zoom_to_radius = {
-        1: 50000,  # 50 km
-        2: 25000,  # 25 km
-        3: 10000,  # 10 km
-        4: 5000,  # 5 km
-        5: 2500,  # 2.5 km
-        6: 1000,  # 1 km
-        7: 500,  # 500 m
-        8: 250,  # 250 m
-        9: 100,  # 100 m
-        10: 50,  # 50 m
-    }
 
-    max_distance = zoom_to_radius.get(zoom_level, 1000)  # Default 1km
+    # Crear geocerca circular temporal alrededor del pasajero
+    try:
+        temp_geofence_str = f"CIRCLE ({passenger_lat} {passenger_lon}, {max_distance})"
+        geofence_obj = parse_geofence(temp_geofence_str)
+    except ValueError as e:
+        logger.error(
+            f"Error creando geocerca temporal para el pasajero que está en {passenger_lat}, {passenger_lon}: {e}"
+        )
+        return []
+
     filtered_vehicles = []
 
     for vehicle in vehicles:
-        try:
-            vehicle_lat = float(vehicle.get("lat", 0))
-            vehicle_lon = float(vehicle.get("lng", 0))
-
-            distance = calculate_distance(
-                passenger_lat, passenger_lon, vehicle_lat, vehicle_lon
-            )
-
-            if distance <= max_distance:
-                # Añadir distancia calculada al objeto vehículo
-                vehicle_copy = vehicle.copy()
-                vehicle_copy["distance"] = round(distance, 2)
-                filtered_vehicles.append(vehicle_copy)
-
-        except (ValueError, TypeError) as e:
-            logger.warning(
-                f"Error al procesar vehículo {vehicle.get('name', 'unknown')}: {e}"
-            )
+        # Omitir el vehículo actual y los que no tienen grupo o coordenadas
+        if not vehicle.get("latitude") or not vehicle.get("longitude"):
             continue
-
-    # Ordenar por distancia (más cerca primero)
-    filtered_vehicles.sort(key=lambda x: x.get("distance", float("inf")))
-
+        # Verificar si está dentro de la geocerca temporal
+        if is_point_in_geofence(
+            vehicle["latitude"], vehicle["longitude"], geofence_obj
+        ):
+            filtered_vehicles.append(vehicle)
     return filtered_vehicles
 
 
@@ -113,6 +66,7 @@ def validate_coordinates(lat: float, lon: float) -> bool:
         bool: True si las coordenadas son válidas
     """
     return -90 <= lat <= 90 and -180 <= lon <= 180
+
 
 def create_error_message(error: str, code: str = "ERROR") -> Dict[str, Any]:
     """
@@ -159,18 +113,63 @@ def get_current_timestamp() -> int:
     return int(time.time() * 1000)
 
 
-def parse_zoom_level(zoom: Any) -> int:
-    """
-    Parsea y valida el nivel de zoom.
+def is_point_in_geofence(lat, lon, geofence):
+    """Verifica si un punto está dentro de la geozona."""
+    if geofence["type"] == "polygon":
+        point = Point(lat, lon)
+        return geofence["geometry"].contains(point)
 
-    Args:
-        zoom: Nivel de zoom a parsear
+    elif geofence["type"] == "circle":
+        # Calcular distancia haversine entre el punto y el centro del círculo
+        center_lat, center_lon = geofence["center"]
+        radius = geofence["radius"]
 
-    Returns:
-        int: Nivel de zoom válido (1-10)
-    """
-    try:
-        zoom_int = int(zoom)
-        return max(1, min(10, zoom_int))  # Clamp entre 1 y 10
-    except (ValueError, TypeError):
-        return 5  # Default zoom level
+        # Distancia haversine (considerando la Tierra como esfera)
+        R = 6371000  # Radio de la Tierra en metros
+
+        lat1, lon1 = math.radians(center_lat), math.radians(center_lon)
+        lat2, lon2 = math.radians(lat), math.radians(lon)
+
+        dlat = lat2 - lat1
+        dlon = lon2 - lon1
+
+        a = (
+            math.sin(dlat / 2) ** 2
+            + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
+        )
+        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+        distance = R * c
+
+        return distance <= radius
+
+
+def parse_geofence(geofence_str):
+    """Parsea una cadena de geozona en formato POLYGON o CIRCLE y retorna un objeto para realizar verificaciones."""
+    if geofence_str.startswith("POLYGON"):
+        # Extraer coordenadas del polígono
+        coordinates_str = re.search(r"POLYGON \(\((.*)\)\)", geofence_str).group(1)
+        coordinate_pairs = coordinates_str.split(", ")
+
+        # Convertir a lista de tuplas (lon, lat)
+        polygon_coords = []
+        for pair in coordinate_pairs:
+            lat, lon = map(float, pair.split())
+            polygon_coords.append((lat, lon))
+
+        return {"type": "polygon", "geometry": Polygon(polygon_coords)}
+
+    elif geofence_str.startswith("CIRCLE"):
+        # Extraer centro y radio del círculo
+        circle_data = re.search(r"CIRCLE \((.*), (.*)\)", geofence_str)
+
+        # Separar latitud y longitud del centro que vienen juntos
+        center_coords = circle_data.group(1).split()
+        center_lat = float(center_coords[0])
+        center_lon = float(center_coords[1])
+
+        radius = float(circle_data.group(2))  # en metros
+
+        return {"type": "circle", "center": (center_lat, center_lon), "radius": radius}
+
+    else:
+        raise ValueError("Formato de geozona no reconocido. Use POLYGON o CIRCLE.")
