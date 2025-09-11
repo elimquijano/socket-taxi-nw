@@ -256,7 +256,7 @@ class ApiClient:
 
         try:
             result = await self._make_request(
-                "POST", "api/trips", json=trip_data, headers=headers
+                "POST", "api/trips", json_data=trip_data, headers=headers
             )
 
             if result:
@@ -286,7 +286,7 @@ class ApiClient:
 
         try:
             result = await self._make_request(
-                "PUT", f"api/trips/{trip_id}", json=trip_data, headers=headers
+                "PUT", f"api/trips/{trip_id}", json_data=trip_data, headers=headers
             )
 
             if result:
@@ -321,7 +321,7 @@ class ApiClient:
                 "location_updated_at": get_current_datetime_in_str()
             }
             result = await self._make_request(
-                "PUT", f"api/driver-profiles/{profile_id}", json=updated_data, headers=headers
+                "PUT", f"api/driver-profiles/{profile_id}", json_data=updated_data, headers=headers
             )
 
             if result:
