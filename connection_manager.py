@@ -391,8 +391,10 @@ class ConnectionManager:
         """
         try:
             logger.info(f"Un pasajero solicita un nuevo viaje con datos: {data}")
-
-            service_type = data.get("service_type")
+            
+            # data = {'type': 'request_trip', 'data': {'service_type': 'ride', 'requester_id': 3, 'pickup': {'latitude': -9.9354365, 'longitude': -76.2477647, 'address': 'Tu ubicación actual'}, 'destination': {'latitude': -9.931261946245485, 'longitude': -76.24758460418715, 'address': 'Ubicación seleccionada'}, 'price': '2', 'payment_method': 'cash', 'let_drivers_suggest': False, 'distance': 0.627817, 'duration': 2.439716666666667, 'passengerRoute': {'coordinates': [[-76.247756, -9.935412], [-76.2482, -9.935062], [-76.247977, -9.934761], [-76.247529, -9.934172], [-76.246891, -9.933259], [-76.246216, -9.932305], [-76.246497, -9.932111], [-76.246508, -9.932103], [-76.246519, -9.932096], [-76.246742, -9.931942], [-76.246852, -9.931867], [-76.247013, -9.931756], [-76.247571, -9.931372], [-76.247632, -9.931333]], 'type': 'LineString'}}}
+            # saca todos los campos requeridos para crear el viaje
+            service_type = data.get("service_type", "ride")
             requester_id = data.get("requester_id")
             pickup_address = data.get("pickup", {}).get("address")
             pickup_latitude = data.get("pickup", {}).get("latitude")
@@ -400,67 +402,21 @@ class ConnectionManager:
             destination_address = data.get("destination", {}).get("address")
             destination_latitude = data.get("destination", {}).get("latitude")
             destination_longitude = data.get("destination", {}).get("longitude")
-            estimated_fare = data.get("price")
+            price = data.get("price", 0)
             payment_method = data.get("payment_method", "cash")
             let_drivers_suggest = data.get("let_drivers_suggest", False)
-            distance_meters = data.get("distance")
-            duration_seconds = data.get("duration")
-            passenger_route = data.get("passengerRoute")
+            passenger_route = data.get("passengerRoute", {})
+            distance = data.get("distance", 0)
+            duration = data.get("duration", 0)
             zoom = data.get("zoom", 100)
             requested_at = datetime.datetime.utcnow().isoformat() + "Z"
-
-            # Validation
-            required_fields = {
-                "service_type": service_type,
-                "requester_id": requester_id,
-                "pickup_address": pickup_address,
-                "pickup_latitude": pickup_latitude,
-                "pickup_longitude": pickup_longitude,
-                "destination_address": destination_address,
-                "destination_latitude": destination_latitude,
-                "destination_longitude": destination_longitude,
-                "payment_method": payment_method,
-                "distance": distance_meters,
-                "duration": duration_seconds,
-                "passenger_route": passenger_route,
-            }
-
-            missing_fields = [
-                field for field, value in required_fields.items() if value is None
-            ]
-
-            if estimated_fare is None and not let_drivers_suggest:
-                missing_fields.append("price (or let_drivers_suggest)")
-
-            if missing_fields:
-                logger.warning(
-                    f"Campos requeridos faltantes en la solicitud de viaje: {', '.join(missing_fields)}"
-                )
-                error_msg = create_error_message(
-                    f"Campos requeridos faltantes: {', '.join(missing_fields)}",
-                    "REQUEST_TRIP_ERROR",
-                )
-                await self._send_message(websocket, error_msg)
-                return
-
-            # Type conversion
-            try:
-                pickup_latitude = float(pickup_latitude)
-                pickup_longitude = float(pickup_longitude)
-                destination_latitude = float(destination_latitude)
-                destination_longitude = float(destination_longitude)
-                estimated_fare = float(estimated_fare) if estimated_fare is not None else 0.0
-                distance_meters = float(distance_meters)
-                duration_seconds = float(duration_seconds)
-            except (ValueError, TypeError) as e:
-                logger.error(f"Error de conversión de tipos en solicitud de viaje: {e}")
-                error_msg = create_error_message(
-                    f"Error en el formato de los datos: {e}", "REQUEST_TRIP_ERROR"
-                )
-                await self._send_message(websocket, error_msg)
-                return
-
             status = "requested"
+            
+            # validar que si let_drivers_suggest es falso y price es 0, no se puede crear el viaje
+            if not let_drivers_suggest and price == 0:
+                logger.error("No se proporcionó un precio para el viaje.")
+                error_msg = create_error_message("No se proporcionó un precio para el viaje.", "ERROR_REQUEST_TRIP")
+                await self._send_message(websocket, error_msg)
             
             # Actualiza posicion de pasajero
             self.passengers[websocket]["latitude"] = pickup_latitude
@@ -479,9 +435,9 @@ class ConnectionManager:
                     "destination_address": destination_address,
                     "destination_latitude": destination_latitude,
                     "destination_longitude": destination_longitude,
-                    "estimated_fare": estimated_fare,
-                    "distance": distance_meters,
-                    "duration": duration_seconds,
+                    "estimated_fare": price,
+                    "distance": distance,
+                    "duration": duration,
                     "passenger_route": passenger_route,
                     "requested_at": requested_at,
                 },self.passengers[websocket]["token"]
