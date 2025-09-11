@@ -98,7 +98,7 @@ class ApiClient:
 
             logger.debug(f"Respuesta recibida: {response.status_code}")
 
-            if response.status_code == 200:
+            if 200 <= response.status_code < 300:
                 return response.json()
             elif response.status_code == 401:
                 logger.warning(f"Token inválido o expirado para {url}")
