@@ -392,7 +392,7 @@ class ConnectionManager:
         try:
             logger.debug(f"Un pasajero solicita un nuevo viaje con datos: {data}")
             service_type = data.get("service_type", None)
-            requester_id = int(data.get("requester_id", None))
+            requester_id = data.get("requester_id", None)
             status = "requested"
             pickup_address = data.get("pickup", {}).get("address", None)
             pickup_latitude = float(data.get("pickup", {}).get("latitude", 0))
@@ -403,8 +403,8 @@ class ConnectionManager:
             estimated_fare = float(data.get("price", 0))
             payment_method = data.get("payment_method", "cash")
             let_drivers_suggest = data.get("let_drivers_suggest", False)
-            distance_meters = float(data.get("distance", None))
-            duration_seconds = float(data.get("duration", None))
+            distance_meters = float(data.get("distance", 0))
+            duration_seconds = float(data.get("duration", 0))
             passenger_route = data.get("passengerRoute", None)
             zoom = data.get("zoom", 100)
             requested_at = datetime.datetime.utcnow().isoformat() + "Z"
@@ -689,13 +689,5 @@ class ConnectionManager:
             "total_drivers": len(self.drivers),
             "total_passengers": len(self.passengers),
             "total_connections": len(self.connection_info),
-            "driver_vehicles": list(self.drivers.keys()),
-            "passenger_locations": [
-                {
-                    "lat": data["latitude"],
-                    "lng": data["longitude"],
-                    "zoom": data["zoom"],
-                }
-                for data in self.passengers.values()
-            ],
+            "driver_vehicles": list(self.drivers.keys())
         }
