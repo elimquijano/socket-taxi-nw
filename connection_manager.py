@@ -317,11 +317,11 @@ class ConnectionManager:
 
             elif message_type == "request_trip" and websocket in self.passengers:
                 # Un pasajero solicita un viaje
-                await self._new_request_trip(websocket, data)
+                await self._new_request_trip(websocket, data.get("data", {}))
 
             elif message_type == "update_location" and websocket in self.passengers:
                 # Actualizar ubicación de pasajero
-                await self._update_passenger_location(websocket, data)
+                await self._update_passenger_location(websocket, data.get("data", {}))
 
             elif message_type == "get_status":
                 # Enviar estado de la conexión
