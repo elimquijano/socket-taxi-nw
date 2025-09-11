@@ -420,8 +420,8 @@ class ConnectionManager:
             request_trip = await self.api_client.create_trip(data_proccess,self.passengers[websocket]["token"])
             
             # Guardar información del viaje
-            self.passengers[websocket]["current_trip"] = request_trip.id
-            self.current_trips[request_trip.id] = data
+            self.passengers[websocket]["current_trip"] = request_trip['id']
+            self.current_trips[request_trip['id']] = data
             
             # Buscar conductores cercanos
             available_drivers = await filter_connected_drivers_by_proximity(self.drivers, data_proccess.get("pickup_latitude"), data_proccess.get("pickup_longitude"), data_proccess.get("zoom"))
