@@ -435,7 +435,7 @@ class ConnectionManager:
             await self._send_message(websocket, succes_message)
             
             # Enviar solicitud de viaje a conductores cercanos
-            await self._send_trip_request_to_drivers(available_drivers, {**data, "trip_id": request_trip.id, "status": data_proccess.get("status")})
+            await self._send_trip_request_to_drivers(available_drivers, {**data, "trip_id": request_trip['id'], "status": data_proccess.get("status")})
 
         except (ValueError, TypeError) as e:
             error_msg = create_error_message(
@@ -584,7 +584,7 @@ class ConnectionManager:
     async def _send_trip_request_to_drivers(self, drivers, trip_request):
         try:
             success_msg = create_success_message(trip_request, "NEW_REQUEST_TRIP")
-            await asyncio.gather(*(self._send_message(d["websocket"], success_msg) for d in drivers.values()))
+            await asyncio.gather(*(self._send_message(d["websocket"], success_msg) for d in drivers))
         except Exception as e:
             logger.warning(f"Error al enviar solicitud de viaje a conductores: {e}")
 
