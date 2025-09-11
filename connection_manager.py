@@ -390,7 +390,7 @@ class ConnectionManager:
             data: Datos del mensaje de la solicitud
         """
         try:
-            logger.debug(f"Un pasajero solicita un nuevo viaje con datos: {data}")
+            logger.info(f"Un pasajero solicita un nuevo viaje con datos: {data}")
 
             service_type = data.get("service_type")
             requester_id = data.get("requester_id")
