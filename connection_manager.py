@@ -307,9 +307,11 @@ class ConnectionManager:
             message: Mensaje recibido
         """
         try:
-            data = json.loads(message)
+            data = message
             while isinstance(data, str):
                 data = json.loads(data)
+            
+            logger.info(f"Data: {data}")
             message_type = data.get("type", "")
 
             if message_type == "ping":
