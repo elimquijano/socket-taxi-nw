@@ -345,7 +345,6 @@ class ConnectionManager:
             data: Datos del mensaje con nueva ubicación
         """
         try:
-            data = json.loads(data)
             new_lat = float(data.get("latitude", 0))
             new_lng = float(data.get("longitude", 0))
             new_zoom = int(data.get("zoom", 1))
@@ -391,84 +390,48 @@ class ConnectionManager:
             data: Datos del mensaje de la solicitud
         """
         try:
-            logger.info(f"Un pasajero solicita un nuevo viaje con datos: {data}")
-            data = json.loads(data)
-            service_type = data.get("service_type", None)
-            requester_id = data.get("requester_id", None)
-            status = "requested"
-            pickup_address = data.get("pickup", {}).get("address", None)
-            pickup_latitude = float(data.get("pickup", {}).get("latitude", 0))
-            pickup_longitude = float(data.get("pickup", {}).get("longitude", 0))
-            destination_address = data.get("destination", {}).get("address", None)
-            destination_latitude = float(data.get("destination", {}).get("latitude", 0))
-            destination_longitude = float(data.get("destination", {}).get("longitude", 0))
-            estimated_fare = float(data.get("price", 0))
-            payment_method = data.get("payment_method", "cash")
-            let_drivers_suggest = data.get("let_drivers_suggest", False)
-            distance_meters = float(data.get("distance", 0))
-            duration_seconds = float(data.get("duration", 0))
-            passenger_route = data.get("passengerRoute", None)
-            zoom = data.get("zoom", 100)
-            requested_at = datetime.datetime.utcnow().isoformat() + "Z"
-            if not all[
-                service_type,
-                requester_id,
-                pickup_address,
-                pickup_latitude == 0,
-                pickup_longitude == 0,
-                destination_address,
-                destination_latitude == 0,
-                destination_longitude == 0,
-                (let_drivers_suggest if estimated_fare == 0 else estimated_fare),
-                payment_method,
-                distance_meters,
-                duration_seconds,
-                passenger_route,
-            ]:
-                logger.warning(
-                    f"Campos requeridos faltantes en la solicitud de viaje: {data}"
-                )
-                error_msg = create_error_message("Campor requeridos faltantes", "REQUEST_TRIP_ERROR")
-                await self._send_message(websocket,error_msg)
+            data_proccess = {
+            "service_type" : data.get("service_type", None),
+            "requester_id" : data.get("requester_id", None),
+            "status" : "requested",
+            "pickup_address" : data.get("pickup", {}).get("address", None),
+            "pickup_latitude" : float(data.get("pickup", {}).get("latitude", 0)),
+            "pickup_longitude" : float(data.get("pickup", {}).get("longitude", 0)),
+            "destination_address" : data.get("destination", {}).get("address", None),
+            "destination_latitude" : float(data.get("destination", {}).get("latitude", 0)),
+            "destination_longitude" : float(data.get("destination", {}).get("longitude", 0)),
+            "estimated_fare" : float(data.get("price", 0)),
+            "payment_method" : data.get("payment_method", "cash"),
+            "let_drivers_suggest" : data.get("let_drivers_suggest", False),
+            "distance_meters" : float(data.get("distance", 0)),
+            "duration_seconds" : float(data.get("duration", 0)),
+            "passenger_route" : data.get("passengerRoute", None),
+            "zoom" : data.get("zoom", 100),
+            "requested_at" : datetime.datetime.utcnow().isoformat() + "Z",
+            }
+            logger.info(f"Un pasajero solicita un nuevo viaje con datos: {data_proccess}")
             
             # Actualiza posicion de pasajero
-            self.passengers[websocket]["latitude"] = pickup_latitude
-            self.passengers[websocket]["longitude"] = pickup_longitude
-            self.passengers[websocket]["zoom"] = zoom
+            self.passengers[websocket]["latitude"] = data_proccess.get("pickup_latitude")
+            self.passengers[websocket]["longitude"] = data_proccess.get("pickup_longitude")
+            self.passengers[websocket]["zoom"] = data_proccess.get("zoom")
 
             # Registra el viaje en la base de datos
-            request_trip = await self.api_client.create_trip(
-                {
-                    "service_type": service_type,
-                    "requester_id": requester_id,
-                    "status": status,
-                    "pickup_address": pickup_address,
-                    "pickup_latitude": pickup_latitude,
-                    "pickup_longitude": pickup_longitude,
-                    "destination_address": destination_address,
-                    "destination_latitude": destination_latitude,
-                    "destination_longitude": destination_longitude,
-                    "estimated_fare": estimated_fare,
-                    "distance": distance_meters,
-                    "duration": duration_seconds,
-                    "passenger_route": passenger_route,
-                    "requested_at": requested_at,
-                },self.passengers[websocket]["token"]
-            )
+            request_trip = await self.api_client.create_trip(data_proccess,self.passengers[websocket]["token"])
             
             # Guardar información del viaje
             self.passengers[websocket]["current_trip"] = request_trip.id
             self.current_trips[request_trip.id] = data
             
             # Buscar conductores cercanos
-            available_drivers = await filter_connected_drivers_by_proximity(self.drivers, pickup_latitude, pickup_longitude, zoom)
+            available_drivers = await filter_connected_drivers_by_proximity(self.drivers, data_proccess.get("pickup_latitude"), data_proccess.get("pickup_longitude"), data_proccess.get("zoom"))
             
             # Devolver conductores cercanos conectados
             succes_message = create_success_message(available_drivers, "REQUEST_TRIP_SUCCESS")
             await self._send_message(websocket, succes_message)
             
             # Enviar solicitud de viaje a conductores cercanos
-            await self._send_trip_request_to_drivers(available_drivers, {**data, "trip_id": request_trip.id, "status":status})
+            await self._send_trip_request_to_drivers(available_drivers, {**data, "trip_id": request_trip.id, "status": data_proccess.get("status")})
 
         except (ValueError, TypeError) as e:
             error_msg = create_error_message(
