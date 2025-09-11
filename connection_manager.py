@@ -345,6 +345,7 @@ class ConnectionManager:
             data: Datos del mensaje con nueva ubicación
         """
         try:
+            data = json.loads(data)
             new_lat = float(data.get("latitude", 0))
             new_lng = float(data.get("longitude", 0))
             new_zoom = int(data.get("zoom", 1))
