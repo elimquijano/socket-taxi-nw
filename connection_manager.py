@@ -308,6 +308,8 @@ class ConnectionManager:
         """
         try:
             data = json.loads(message)
+            while isinstance(data, str):
+                data = json.loads(data)
             message_type = data.get("type", "")
 
             if message_type == "ping":
@@ -345,8 +347,6 @@ class ConnectionManager:
             data: Datos del mensaje con nueva ubicación
         """
         try:
-            if isinstance(data, str):
-                data = json.loads(data)
             new_lat = float(data.get("latitude", 0))
             new_lng = float(data.get("longitude", 0))
             new_zoom = int(data.get("zoom", 1))
@@ -392,8 +392,6 @@ class ConnectionManager:
             data: Datos del mensaje de la solicitud
         """
         try:
-            if isinstance(data, str):
-                data = json.loads(data)
             data_proccess = {
             "service_type" : data.get("service_type", None),
             "requester_id" : data.get("requester_id", None),
