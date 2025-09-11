@@ -391,15 +391,15 @@ class ConnectionManager:
         """
         try:
             logger.debug(f"Un pasajero solicita un nuevo viaje con datos: {data}")
-            service_type = float(data.get("service_type", None))
+            service_type = data.get("service_type", None)
             requester_id = int(data.get("requester_id", None))
             status = "requested"
             pickup_address = data.get("pickup", {}).get("address", None)
-            pickup_latitude = data.get("pickup", {}).get("latitude", None)
-            pickup_longitude = data.get("pickup", {}).get("longitude", None)
+            pickup_latitude = float(data.get("pickup", {}).get("latitude", 0))
+            pickup_longitude = float(data.get("pickup", {}).get("longitude", 0))
             destination_address = data.get("destination", {}).get("address", None)
-            destination_latitude = data.get("destination", {}).get("latitude", None)
-            destination_longitude = data.get("destination", {}).get("longitude", None)
+            destination_latitude = float(data.get("destination", {}).get("latitude", 0))
+            destination_longitude = float(data.get("destination", {}).get("longitude", 0))
             estimated_fare = float(data.get("price", 0))
             payment_method = data.get("payment_method", "cash")
             let_drivers_suggest = data.get("let_drivers_suggest", False)
@@ -412,11 +412,11 @@ class ConnectionManager:
                 service_type,
                 requester_id,
                 pickup_address,
-                pickup_latitude,
-                pickup_longitude,
+                pickup_latitude == 0,
+                pickup_longitude == 0,
                 destination_address,
-                destination_latitude,
-                destination_longitude,
+                destination_latitude == 0,
+                destination_longitude == 0,
                 (let_drivers_suggest if estimated_fare == 0 else estimated_fare),
                 payment_method,
                 distance_meters,
