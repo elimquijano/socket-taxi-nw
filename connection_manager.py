@@ -370,8 +370,18 @@ class ConnectionManager:
                 # Buscar conductores cercanos
                 available_drivers = filter_connected_drivers_by_proximity(self.drivers, new_lat, new_lng, new_zoom)
                 
+                # Sanitizar datos de conductores antes de enviarlos
+                sanitized_drivers = [
+                    {
+                        "latitude": driver.get("latitude"),
+                        "longitude": driver.get("longitude"),
+                        "profile_id": driver.get("profile_id"),
+                    }
+                    for driver in available_drivers
+                ]
+
                 # Devolver conductores cercanos conectados
-                succes_message = create_success_message(available_drivers, "REQUEST_TRIP_SUCCESS")
+                succes_message = create_success_message(sanitized_drivers, "REQUEST_TRIP_SUCCESS")
                 await self._send_message(websocket, succes_message)
                 
                 # Enviar solicitud de viaje a conductores cercanos
@@ -436,8 +446,18 @@ class ConnectionManager:
             # Buscar conductores cercanos
             available_drivers = filter_connected_drivers_by_proximity(self.drivers, data_proccess.get("pickup_latitude"), data_proccess.get("pickup_longitude"), data_proccess.get("zoom"))
             
+            # Sanitizar datos de conductores antes de enviarlos
+            sanitized_drivers = [
+                {
+                    "latitude": driver.get("latitude"),
+                    "longitude": driver.get("longitude"),
+                    "profile_id": driver.get("profile_id"),
+                }
+                for driver in available_drivers
+            ]
+            
             # Devolver conductores cercanos conectados
-            succes_message = create_success_message(available_drivers, "REQUEST_TRIP_SUCCESS")
+            succes_message = create_success_message(sanitized_drivers, "REQUEST_TRIP_SUCCESS")
             await self._send_message(websocket, succes_message)
             
             # Enviar solicitud de viaje a conductores cercanos
