@@ -310,7 +310,13 @@ class ConnectionManager:
             data = message
             while isinstance(data, str):
                 data = json.loads(data)
-            
+
+            if isinstance(data, dict) and 'data' in data:
+                data_payload = data['data']
+                while isinstance(data_payload, str):
+                    data_payload = json.loads(data_payload)
+                data['data'] = data_payload
+
             logger.info(f"Data: {data}")
             message_type = data.get("type", "")
 

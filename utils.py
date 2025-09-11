@@ -43,7 +43,7 @@ def filter_connected_drivers_by_proximity(
 
     filtered_drivers = []
 
-    for vehicle in drivers:
+    for vehicle in drivers.values():
         # Omitir el vehículo actual y los que no tienen grupo o coordenadas
         if not vehicle.get("latitude") or not vehicle.get("longitude"):
             continue
