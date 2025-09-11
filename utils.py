@@ -6,13 +6,14 @@ import math
 from typing import List, Dict, Any
 import re
 from shapely.geometry import Point, Polygon
+from datetime import datetime
 from logger_config import get_logger
 
 logger = get_logger(__name__)
 
 
-def filter_vehicles_by_proximity(
-    vehicles: List[Dict[str, Any]],
+def filter_connected_drivers_by_proximity(
+    drivers: List[Dict[str, Any]],
     passenger_lat: float,
     passenger_lon: float,
     max_distance: int = 1000,
@@ -21,7 +22,7 @@ def filter_vehicles_by_proximity(
     Filtra vehículos basándose en la proximidad al pasajero según el nivel de zoom.
 
     Args:
-        vehicles: Lista de vehículos con coordenadas
+        drivers: Lista de vehículos con coordenadas
         passenger_lat: Latitud del pasajero
         passenger_lon: Longitud del pasajero
         max_distance: Radio en metros
@@ -40,9 +41,9 @@ def filter_vehicles_by_proximity(
         )
         return []
 
-    filtered_vehicles = []
+    filtered_drivers = []
 
-    for vehicle in vehicles:
+    for vehicle in drivers:
         # Omitir el vehículo actual y los que no tienen grupo o coordenadas
         if not vehicle.get("latitude") or not vehicle.get("longitude"):
             continue
@@ -50,8 +51,8 @@ def filter_vehicles_by_proximity(
         if is_point_in_geofence(
             vehicle["latitude"], vehicle["longitude"], geofence_obj
         ):
-            filtered_vehicles.append(vehicle)
-    return filtered_vehicles
+            filtered_drivers.append(vehicle)
+    return filtered_drivers
 
 
 def validate_coordinates(lat: float, lon: float) -> bool:
@@ -81,8 +82,10 @@ def create_error_message(error: str, code: str = "ERROR") -> Dict[str, Any]:
     """
     return {
         "type": "error",
-        "code": code,
-        "message": error,
+        "data": {
+            "code": code,
+            "message": error,
+        },
         "timestamp": get_current_timestamp(),
     }
 
@@ -173,3 +176,8 @@ def parse_geofence(geofence_str):
 
     else:
         raise ValueError("Formato de geozona no reconocido. Use POLYGON o CIRCLE.")
+
+
+def get_current_datetime_in_str():
+    now = datetime.now()
+    return now.strftime("%Y-%m-%d %H:%M:%S")

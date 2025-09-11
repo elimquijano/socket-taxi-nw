@@ -5,19 +5,18 @@ Gestor de conexiones WebSocket para conductores y pasajeros.
 import asyncio
 import json
 import websockets
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
+import datetime
 from urllib.parse import urlparse, parse_qs
 from utils import (
-    filter_vehicles_by_proximity,
+    filter_connected_drivers_by_proximity,
     validate_coordinates,
     create_error_message,
     create_success_message,
 )
-
 from logger_config import get_logger
 
 logger = get_logger(__name__)
-
 
 class ConnectionManager:
     """Maneja todas las conexiones WebSocket de conductores y pasajeros."""
@@ -33,11 +32,14 @@ class ConnectionManager:
         self.api_client = api_client
         self.passenger_api_key = passenger_api_key
 
-        # Registro de conductores: {license_plate: websocket}
-        self.drivers: Dict[str, websockets.WebSocketServerProtocol] = {}
+        # Registro de conductores: {license_plate: {websocket, longitude, latitude, profile_id, token}}
+        self.drivers: Dict[str, Dict[str, Any]] = {}
 
-        # Registro de pasajeros: {websocket: {lat, lng, zoom}}
+        # Registro de pasajeros: {websocket: {lat, lng, zoom, current_trip?}}
         self.passengers: Dict[websockets.WebSocketServerProtocol, Dict[str, Any]] = {}
+
+        # Registro de viajes actuales: {websocket: trip_id}
+        self.current_trips: Dict[websockets.WebSocketServerProtocol, str] = {}
 
         # Mapping adicional para debugging
         self.connection_info: Dict[
@@ -64,20 +66,18 @@ class ConnectionManager:
             # Verificar si es conductor (con token Bearer)
             token = query_params.get("token", [None])[0]
 
-            # Verificar si es pasajero (con api_key y coordenadas)
-            api_key = query_params.get("api_key", [None])[0]
-            lat = query_params.get("lat", [None])[0]
-            lng = query_params.get("lng", [None])[0]
-            zoom = query_params.get("zoom", [1000])[0]  # Default zoom 1000 metros
+            # Verificar si es pasajero (con type)
+            type = query_params.get("type", [None])[0]
 
-            if token:
-                # Manejar conexión de conductor
-                await self._handle_driver_connection(websocket, token, client_address)
-            elif api_key and lat and lng:
-                # Manejar conexión de pasajero
-                await self._handle_passenger_connection(
-                    websocket, api_key, lat, lng, zoom, client_address
-                )
+            if token and type:
+                if type == "driver":
+                    # Manejar conexión de conductor
+                    await self._handle_driver_connection(websocket, token, client_address)
+                else:
+                    # Manejar conexión de pasajero
+                    await self._handle_passenger_connection(
+                        websocket, token, client_address
+                    )
             else:
                 # Parámetros insuficientes
                 error_msg = create_error_message(
@@ -141,7 +141,13 @@ class ConnectionManager:
             for vehicle in vehicles:
                 license_plate = vehicle.get("license_plate") or vehicle.get("name")
                 if license_plate:
-                    self.drivers[license_plate] = websocket
+                    self.drivers[license_plate] = {
+                        "websocket": websocket,
+                        "latitude": 0,
+                        "longitude": 0,
+                        "profile_id": user_profile.get("id"),
+                        "token": token,
+                    }
                     registered_plates.append(license_plate)
 
             if not registered_plates:
@@ -165,7 +171,6 @@ class ConnectionManager:
             # Enviar confirmación de conexión
             success_msg = create_success_message(
                 {
-                    "user": user_profile,
                     "vehicles": vehicles,
                     "registered_plates": registered_plates,
                 },
@@ -195,10 +200,7 @@ class ConnectionManager:
     async def _handle_passenger_connection(
         self,
         websocket: websockets.WebSocketServerProtocol,
-        api_key: str,
-        lat: str,
-        lng: str,
-        zoom: str,
+        token: str,
         client_address: str,
     ):
         """
@@ -206,67 +208,36 @@ class ConnectionManager:
 
         Args:
             websocket: Conexión WebSocket del pasajero
-            api_key: Clave de API del pasajero
-            lat: Latitud del pasajero
-            lng: Longitud del pasajero
-            zoom: Nivel de zoom
+            token: Token del pasajero
             client_address: Dirección del cliente
         """
         try:
-            # Validar clave de API
-            if api_key != self.passenger_api_key:
-                error_msg = create_error_message("Clave de API inválida", "AUTH_ERROR")
-                await self._send_message(websocket, error_msg)
-                await websocket.close(code=1008, reason="API key inválida")
-                return
+            # Validar token y obtener perfil
+            user_profile = await self.api_client.get_user_profile(token)
 
-            # Validar y convertir coordenadas
-            try:
-                lat_float = float(lat)
-                lng_float = float(lng)
-            except ValueError:
+            if not user_profile:
                 error_msg = create_error_message(
-                    "Coordenadas inválidas", "INVALID_COORDS"
+                    "Token inválido o expirado", "AUTH_ERROR"
                 )
                 await self._send_message(websocket, error_msg)
-                await websocket.close(code=1008, reason="Coordenadas inválidas")
+                await websocket.close(code=1008, reason="Token inválido")
                 return
-
-            if not validate_coordinates(lat_float, lng_float):
-                error_msg = create_error_message(
-                    "Coordenadas fuera de rango válido", "COORDS_OUT_OF_RANGE"
-                )
-                await self._send_message(websocket, error_msg)
-                await websocket.close(code=1008, reason="Coordenadas inválidas")
-                return
-
-            zoom_level = int(zoom)
 
             # Registrar pasajero
             passenger_data = {
-                "latitude": lat_float,
-                "longitude": lng_float,
-                "zoom": zoom_level,
+                "token": token,
+                "profile_id": user_profile.get("id"),
                 "connected_at": asyncio.get_event_loop().time(),
             }
 
             self.passengers[websocket] = passenger_data
 
             # Guardar información de la conexión
-            self.connection_info[websocket] = {
-                "type": "passenger",
-                "latitude": lat_float,
-                "longitude": lng_float,
-                "zoom": zoom_level,
-                "connected_at": passenger_data["connected_at"],
-            }
+            self.connection_info[websocket] = {"type": "passenger", **passenger_data}
 
             # Enviar confirmación de conexión
             success_msg = create_success_message(
                 {
-                    "latitude": lat_float,
-                    "longitude": lng_float,
-                    "zoom": zoom_level,
                     "status": "connected",
                 },
                 "passenger_connected",
@@ -275,7 +246,7 @@ class ConnectionManager:
             await self._send_message(websocket, success_msg)
 
             logger.info(
-                f"Pasajero conectado desde {client_address}: lat={lat_float}, lng={lng_float}, zoom={zoom_level}"
+                f"Pasajero conectado desde {client_address}: {user_profile.get("id")}"
             )
 
             # Mantener la conexión activa
@@ -344,6 +315,10 @@ class ConnectionManager:
                 pong_msg = create_success_message({"status": "pong"}, "pong")
                 await self._send_message(websocket, pong_msg)
 
+            elif message_type == "request_trip" and websocket in self.passengers:
+                # Un pasajero solicita un viaje
+                await self._new_request_trip(websocket, data)
+
             elif message_type == "update_location" and websocket in self.passengers:
                 # Actualizar ubicación de pasajero
                 await self._update_passenger_location(websocket, data)
@@ -372,29 +347,26 @@ class ConnectionManager:
         try:
             new_lat = float(data.get("latitude", 0))
             new_lng = float(data.get("longitude", 0))
-            new_zoom = int(data.get("zoom", 1000))
+            new_zoom = int(data.get("zoom", 1))
 
             if validate_coordinates(new_lat, new_lng):
-                # Actualizar datos del pasajero
-                self.passengers[websocket].update(
-                    {"latitude": new_lat, "longitude": new_lng, "zoom": new_zoom}
-                )
+                # Actualizar posicion del pasajero
+                self.passengers[websocket]["latitude"] = new_lat
+                self.passengers[websocket]["longitude"] = new_lng
+                self.passengers[websocket]["zoom"] = new_zoom
+                
+                trip_id = self.passengers[websocket]["current_trip"]
 
-                self.connection_info[websocket].update(
-                    {"latitude": new_lat, "longitude": new_lng, "zoom": new_zoom}
-                )
-
-                # Confirmar actualización
-                success_msg = create_success_message(
-                    {"latitude": new_lat, "longitude": new_lng, "zoom": new_zoom},
-                    "location_updated",
-                )
-
-                await self._send_message(websocket, success_msg)
-
-                logger.debug(
-                    f"Ubicación de pasajero actualizada: lat={new_lat}, lng={new_lng}, zoom={new_zoom}"
-                )
+                # Buscar conductores cercanos
+                available_drivers = await filter_connected_drivers_by_proximity(self.drivers, new_lat, new_lng, new_zoom)
+                
+                # Devolver conductores cercanos conectados
+                succes_message = create_success_message(available_drivers, "REQUEST_TRIP_SUCCESS")
+                await self._send_message(websocket, succes_message)
+                
+                # Enviar solicitud de viaje a conductores cercanos
+                await self._send_trip_request_to_drivers(available_drivers, {**self.current_trips[trip_id], "trip_id": trip_id, "status": "requested"})
+                
             else:
                 error_msg = create_error_message(
                     "Coordenadas inválidas", "INVALID_COORDS"
@@ -406,6 +378,101 @@ class ConnectionManager:
                 f"Error en datos de ubicación: {e}", "LOCATION_ERROR"
             )
             await self._send_message(websocket, error_msg)
+
+    async def _new_request_trip(
+        self, websocket: websockets.WebSocketServerProtocol, data: Dict[str, Any]
+    ):
+        """
+        Un pasajero solicita un nuevo viaje.
+
+        Args:
+            websocket: Conexión WebSocket del pasajero
+            data: Datos del mensaje de la solicitud
+        """
+        try:
+            logger.debug(f"Un pasajero solicita un nuevo viaje con datos: {data}")
+            service_type = float(data.get("service_type", None))
+            requester_id = int(data.get("requester_id", None))
+            status = "requested"
+            pickup_address = data.get("pickup", {}).get("address", None)
+            pickup_latitude = data.get("pickup", {}).get("latitude", None)
+            pickup_longitude = data.get("pickup", {}).get("longitude", None)
+            destination_address = data.get("destination", {}).get("address", None)
+            destination_latitude = data.get("destination", {}).get("latitude", None)
+            destination_longitude = data.get("destination", {}).get("longitude", None)
+            estimated_fare = float(data.get("price", 0))
+            payment_method = data.get("payment_method", "cash")
+            let_drivers_suggest = data.get("let_drivers_suggest", False)
+            distance_meters = float(data.get("distance", None))
+            duration_seconds = float(data.get("duration", None))
+            passenger_route = data.get("passengerRoute", None)
+            zoom = data.get("zoom", 100)
+            requested_at = datetime.datetime.utcnow().isoformat() + "Z"
+            if not all[
+                service_type,
+                requester_id,
+                pickup_address,
+                pickup_latitude,
+                pickup_longitude,
+                destination_address,
+                destination_latitude,
+                destination_longitude,
+                (let_drivers_suggest if estimated_fare == 0 else estimated_fare),
+                payment_method,
+                distance_meters,
+                duration_seconds,
+                passenger_route,
+            ]:
+                logger.warning(
+                    f"Campos requeridos faltantes en la solicitud de viaje: {data}"
+                )
+                error_msg = create_error_message("Campor requeridos faltantes", "REQUEST_TRIP_ERROR")
+                await self._send_message(websocket,error_msg)
+            
+            # Actualiza posicion de pasajero
+            self.passengers[websocket]["latitude"] = pickup_latitude
+            self.passengers[websocket]["longitude"] = pickup_longitude
+            self.passengers[websocket]["zoom"] = zoom
+
+            # Registra el viaje en la base de datos
+            request_trip = await self.api_client.create_trip(
+                {
+                    "service_type": service_type,
+                    "requester_id": requester_id,
+                    "status": status,
+                    "pickup_address": pickup_address,
+                    "pickup_latitude": pickup_latitude,
+                    "pickup_longitude": pickup_longitude,
+                    "destination_address": destination_address,
+                    "destination_latitude": destination_latitude,
+                    "destination_longitude": destination_longitude,
+                    "estimated_fare": estimated_fare,
+                    "distance": distance_meters,
+                    "duration": duration_seconds,
+                    "passenger_route": passenger_route,
+                    "requested_at": requested_at,
+                },self.passengers[websocket]["token"]
+            )
+            
+            # Guardar información del viaje
+            self.passengers[websocket]["current_trip"] = request_trip.id
+            self.current_trips[request_trip.id] = data
+            
+            # Buscar conductores cercanos
+            available_drivers = await filter_connected_drivers_by_proximity(self.drivers, pickup_latitude, pickup_longitude, zoom)
+            
+            # Devolver conductores cercanos conectados
+            succes_message = create_success_message(available_drivers, "REQUEST_TRIP_SUCCESS")
+            await self._send_message(websocket, succes_message)
+            
+            # Enviar solicitud de viaje a conductores cercanos
+            await self._send_trip_request_to_drivers(available_drivers, {**data, "trip_id": request_trip.id, "status":status})
+
+        except (ValueError, TypeError) as e:
+            error_msg = create_error_message(
+                f"Error en datos de ubicación: {e}", "REQUEST_TRIP_ERROR"
+            )
+            await self._send_message(websocket,error_msg)
 
     async def _send_connection_status(
         self, websocket: websockets.WebSocketServerProtocol
@@ -492,13 +559,22 @@ class ConnectionManager:
             )
 
             if license_plate in self.drivers:
-                websocket = self.drivers[license_plate]
+                # Actualiza posicion de conductores
+                self.drivers[license_plate]["latitude"] = vehicle.get("latitude", 0)
+                self.drivers[license_plate]["longitude"] = vehicle.get("longitude", 0)
+                websocket = self.drivers[license_plate]["websocket"]
                 logger.debug(
                     f"Conductor encontrado para {license_plate}. Enviando actualización."
                 )
                 try:
                     message = create_success_message(vehicle, "vehicle_update")
                     await self._send_message(websocket, message)
+                    await self.api_client.update_driver_location(
+                        self.drivers[license_plate]["latitude"],
+                        self.drivers[license_plate]["longitude"],
+                        self.drivers[license_plate]["token"],
+                        self.drivers[license_plate]["profile_id"],
+                    )
 
                 except websockets.exceptions.ConnectionClosed:
                     logger.warning(f"Conexión cerrada para conductor {license_plate}")
@@ -509,7 +585,7 @@ class ConnectionManager:
                         f"Error enviando actualización a conductor {license_plate}: {e}"
                     )
             else:
-                logger.warning(
+                logger.debug(
                     f"No se encontró conductor conectado para la matrícula: {license_plate}"
                 )
 
@@ -536,6 +612,13 @@ class ConnectionManager:
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
 
+    async def _send_trip_request_to_drivers(self, drivers, trip_request):
+        try:
+            success_msg = create_success_message(trip_request, "NEW_REQUEST_TRIP")
+            await asyncio.gather(*(self._send_message(d["websocket"], success_msg) for d in drivers.values()))
+        except Exception as e:
+            logger.warning(f"Error al enviar solicitud de viaje a conductores: {e}")
+
     async def _send_filtered_vehicles_to_passenger(
         self,
         websocket: websockets.WebSocketServerProtocol,
@@ -552,12 +635,7 @@ class ConnectionManager:
         """
         try:
             # Filtrar vehículos por proximidad
-            nearby_vehicles = filter_vehicles_by_proximity(
-                vehicle_updates,
-                passenger_data["latitude"],
-                passenger_data["longitude"],
-                passenger_data["zoom"],
-            )
+            nearby_vehicles = []
 
             if nearby_vehicles:
                 message = create_success_message(

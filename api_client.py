@@ -2,7 +2,7 @@
 Cliente para comunicación con la API REST del backend.
 """
 
-import asyncio
+from utils import get_current_datetime_in_str
 from typing import Dict, List, Optional, Any
 import httpx
 from logger_config import get_logger
@@ -239,6 +239,100 @@ class ApiClient:
 
         except Exception as e:
             logger.error(f"Error al obtener detalles del vehículo {vehicle_id}: {e}")
+            return None
+        
+    async def create_trip(self, trip_data: Dict[str, Any], token: str) -> Optional[Dict[str, Any]]:
+        """
+        Crea un nuevo viaje.
+
+        Args:
+            trip_data: Datos del viaje a crear
+            token: Token Bearer del conductor
+
+        Returns:
+            Dict con la información del viaje creado o None si hay error
+        """
+        headers = {"Authorization": f"Bearer {token}"}
+
+        try:
+            result = await self._make_request(
+                "POST", "api/trips", json=trip_data, headers=headers
+            )
+
+            if result:
+                logger.debug(f"Viaje creado: {result.get('id')}")
+            else:
+                logger.warning("No se pudo crear el viaje")
+
+            return result
+
+        except Exception as e:
+            logger.error(f"Error al crear viaje: {e}")
+            return None
+
+    async def update_trip(self, trip_id: str, trip_data: Dict[str, Any], token: str) -> Optional[Dict[str, Any]]:
+        """
+        Actualiza un viaje existente.
+
+        Args:
+            trip_id: ID del viaje a actualizar
+            trip_data: Datos actualizados del viaje
+            token: Token Bearer del conductor
+
+        Returns:
+            Dict con la información del viaje actualizado o None si hay error
+        """
+        headers = {"Authorization": f"Bearer {token}"}
+
+        try:
+            result = await self._make_request(
+                "PUT", f"api/trips/{trip_id}", json=trip_data, headers=headers
+            )
+
+            if result:
+                logger.debug(f"Viaje actualizado: {trip_id}")
+            else:
+                logger.warning(f"No se pudo actualizar el viaje: {trip_id}")
+
+            return result
+
+        except Exception as e:
+            logger.error(f"Error al actualizar viaje {trip_id}: {e}")
+            return None
+
+    async def update_driver_location(self, latitude: float, longitude: float, token: str, profile_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Actualiza la ubicación del conductor.
+
+        Args:
+            latitude: Latitud del conductor
+            longitude: Longitud del conductor
+            token: Token Bearer del conductor
+
+        Returns:
+            Dict con la información del viaje actualizado o None si hay error
+        """
+        headers = {"Authorization": f"Bearer {token}"}
+
+        try:
+            updated_data = {
+                "current_latitude": latitude,
+                "current_longitude": longitude,
+                "location_updated_at": get_current_datetime_in_str()
+            }
+            result = await self._make_request(
+                "PUT", f"api/driver-profiles/{profile_id}", json=updated_data, headers=headers
+            )
+
+            if result:
+                logger.debug(f"Posicion actualizada para para conductor: {profile_id}")
+            else:
+                logger.warning(f"No se pudo actualizar la posicion del conductor: {profile_id}")
+
+            return result
+
+        except Exception as e:
+            logger.error(f"Error al actualizar posicion del conductor {profile_id}: {e}")
             return None
 
     async def health_check(self) -> bool:
