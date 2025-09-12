@@ -270,7 +270,7 @@ class ApiClient:
             logger.error(f"Error al crear viaje: {e}")
             return None
 
-    async def update_trip(self, trip_id: str, trip_data: Dict[str, Any], token: str) -> Optional[Dict[str, Any]]:
+    async def update_trip(self, trip_id: int, trip_data: Dict[str, Any], token: str) -> Optional[Dict[str, Any]]:
         """
         Actualiza un viaje existente.
 

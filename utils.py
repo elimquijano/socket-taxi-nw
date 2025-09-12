@@ -55,6 +55,46 @@ def filter_connected_drivers_by_proximity(
     return filtered_drivers
 
 
+def filter_current_trips_by_proximity(
+    trips: List[Dict[str, Any]],
+    driver_lat: float,
+    driver_lon: float,
+    max_distance: int = 3000,
+) -> List[Dict[str, Any]]:
+    """
+    Filtra viajes actuales basándose en la proximidad al conductor.
+
+    Args:
+        trips: Lista de viajes actuales con datos de recogida.
+        driver_lat: Latitud del conductor.
+        driver_lon: Longitud del conductor.
+        max_distance: Radio en metros.
+
+    Returns:
+        List[Dict]: Lista de viajes filtrados dentro del radio.
+    """
+    try:
+        temp_geofence_str = f"CIRCLE ({driver_lat} {driver_lon}, {max_distance})"
+        geofence_obj = parse_geofence(temp_geofence_str)
+    except ValueError as e:
+        logger.error(
+            f"Error creando geocerca temporal para el conductor en {driver_lat}, {driver_lon}: {e}"
+        )
+        return []
+
+    filtered_trips = []
+    for trip in trips.values():
+        pickup_location = trip.get("pickup", {})
+        pickup_lat = pickup_location.get("latitude")
+        pickup_lon = pickup_location.get("longitude")
+
+        if pickup_lat is not None and pickup_lon is not None:
+            if is_point_in_geofence(pickup_lat, pickup_lon, geofence_obj):
+                filtered_trips.append(trip)
+
+    return filtered_trips
+
+
 def validate_coordinates(lat: float, lon: float) -> bool:
     """
     Valida si las coordenadas están dentro de rangos válidos.
