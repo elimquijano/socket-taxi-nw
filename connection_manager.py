@@ -456,12 +456,14 @@ class ConnectionManager:
                 for driver in available_drivers
             ]
             
+            new_trip_request = {**data, "trip_id": request_trip['id'], "status": data_proccess.get("status")}
+            
             # Devolver conductores cercanos conectados
-            succes_message = create_success_message(sanitized_drivers, "REQUEST_TRIP_SUCCESS")
+            succes_message = create_success_message({"drivers":sanitized_drivers, "trip": new_trip_request}, "REQUEST_TRIP_SUCCESS")
             await self._send_message(websocket, succes_message)
             
             # Enviar solicitud de viaje a conductores cercanos
-            await self._send_trip_request_to_drivers(available_drivers, {**data, "trip_id": request_trip['id'], "status": data_proccess.get("status")})
+            await self._send_trip_request_to_drivers(available_drivers, new_trip_request)
 
         except (ValueError, TypeError) as e:
             error_msg = create_error_message(
