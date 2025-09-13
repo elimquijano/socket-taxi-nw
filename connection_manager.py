@@ -82,8 +82,7 @@ class ConnectionManager:
             else:
                 # Parámetros insuficientes
                 error_msg = create_error_message(
-                    "Parámetros de autenticación insuficientes. "
-                    "Conductor: requiere 'token'. Pasajero: requiere 'api_key', 'lat', 'lng'",
+                    "Parámetros de autenticación insuficientes. ",
                     "AUTH_ERROR",
                 )
                 await self._send_message(websocket, error_msg)
@@ -442,6 +441,8 @@ class ConnectionManager:
                 return
             if trip_id in self.current_trips:
                 self.current_trips[trip_id]["price"] = float(price)
+                # Actualizar en la base de datos
+                await self.api_client.update_trip(trip_id, {"estimated_fare": float(price)},self.passengers[websocket]["token"])
                 # Devolver la solicitud de viaje
                 succes_message = create_success_message(self.current_trips[trip_id], "current_trip")
                 await self._send_message(websocket, succes_message)
@@ -469,7 +470,7 @@ class ConnectionManager:
             trip_id = data.get("trip_id")
             profile_id = data.get("profile_id")
             agent = data.get("agent")
-            if not all[trip_id, profile_id, agent]:
+            if not all((trip_id, profile_id, agent)):
                 error_msg = create_error_message("Campos requeridos faltantes")
                 await self._send_message(websocket, error_msg)
                 return
@@ -488,7 +489,7 @@ class ConnectionManager:
                 self.current_trips.pop(trip_id)
         except (ValueError, TypeError) as e:
             error_msg = create_error_message(
-                f"Error al procesar nueva tarifa: {e}"
+                f"Error al cancelar el viaje: {e}"
             )
             await self._send_message(websocket, error_msg)
 
