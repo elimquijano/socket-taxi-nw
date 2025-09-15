@@ -572,7 +572,9 @@ class ConnectionManager:
                 # Buscar al pasajero que solicito el viaje
                 passenger_id = self.current_trips[trip_id]["requester_id"]
                 for ws, info in self.connection_info.items():
+                    logger.info(f"Buscando {passenger_id} en conexiones: {info}")
                     if info.get("user_id") == passenger_id:
+                        logger.info(f"Encontrado pasajero {passenger_id}")
                         await self._send_message(ws, success_msg)
 
         except (ValueError, TypeError) as e:
