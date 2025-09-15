@@ -38,6 +38,9 @@ class ConnectionManager:
 
         # Registro de pasajeros: {websocket: {lat, lng, zoom, current_trip?}}
         self.passengers: Dict[websockets.WebSocketServerProtocol, Dict[str, Any]] = {}
+        
+        # Mapeo directo de user_id -> ws para búsquedas rápidas de pasajeros
+        self.user_to_ws = {}
 
         # Registro de viajes actuales: {trip_id: {}}
         self.current_trips: Dict[str, Dict[str, Any]] = {}
@@ -251,6 +254,7 @@ class ConnectionManager:
                 "profile": user_profile,
                 "connected_at": asyncio.get_event_loop().time(),
             }
+            self.user_to_ws[user_profile.get("id")] = websocket
 
             # Enviar confirmación de conexión
             success_msg = create_success_message(
@@ -571,11 +575,14 @@ class ConnectionManager:
                 }, "suggest_tarifa_from_driver")
                 # Buscar al pasajero que solicito el viaje
                 passenger_id = self.current_trips[trip_id]["requester_id"]
-                for ws, info in self.connection_info.items():
-                    logger.info(f"Buscando {passenger_id} en conexiones: {info}")
-                    if info.get("user_id") == passenger_id:
-                        logger.info(f"Encontrado pasajero {passenger_id}")
-                        await self._send_message(ws, success_msg)
+
+                # Búsqueda directa y eficiente usando el nuevo diccionario
+                passenger_ws = self.user_to_ws.get(passenger_id)
+
+                if passenger_ws:
+                    await self._send_message(passenger_ws, success_msg)
+                else:
+                    logger.warning(f"No se encontró una conexión activa para el pasajero {passenger_id}.")
 
         except (ValueError, TypeError) as e:
             error_msg = create_error_message(
@@ -658,24 +665,33 @@ class ConnectionManager:
             websocket: Conexión WebSocket a limpiar
         """
         try:
+            # Limpiar información de conexión y mapeo de user_id a websocket
+            if websocket in self.connection_info:
+                info = self.connection_info.pop(websocket)
+                connection_type = info.get("type", "unknown")
+                user_id = info.get("user_id")
+
+                if connection_type == "passenger" and user_id in self.user_to_ws:
+                    del self.user_to_ws[user_id]
+                    logger.debug(f"Mapeo de user_id a websocket limpiado para el usuario {user_id}")
+                
+                logger.info(f"Conexión {connection_type} limpiada para el usuario {user_id}")
+
             # Limpiar registro de conductores
             plates_to_remove = [
-                plate for plate, ws in self.drivers.items() if ws == websocket
+                plate
+                for plate, driver_data in self.drivers.items()
+                if driver_data.get("websocket") == websocket
             ]
             for plate in plates_to_remove:
-                del self.drivers[plate]
-                logger.debug(f"Conductor desregistrado: {plate}")
+                if plate in self.drivers:
+                    del self.drivers[plate]
+                    logger.debug(f"Conductor desregistrado: {plate}")
 
             # Limpiar registro de pasajeros
             if websocket in self.passengers:
                 del self.passengers[websocket]
                 logger.debug("Pasajero desregistrado")
-
-            # Limpiar información de conexión
-            if websocket in self.connection_info:
-                connection_type = self.connection_info[websocket].get("type", "unknown")
-                del self.connection_info[websocket]
-                logger.info(f"Conexión {connection_type} limpiada")
 
         except Exception as e:
             logger.error(f"Error limpiando conexión: {e}")
