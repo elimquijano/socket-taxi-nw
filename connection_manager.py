@@ -363,6 +363,10 @@ class ConnectionManager:
                 # Enviar sugerencias de tarifa a pasajeros
                 await self._send_suggest_tarifa_to_passenger(websocket, message_data) # {trip_id, price}
 
+            elif message_type == "accept_offer" and websocket in self.connection_info:
+                # Enviar sugerencias de tarifa a pasajeros
+                await self._accept_request_trip(websocket, message_data) # {trip_id, price, vehicle, driver_id}
+
             elif message_type == "cancel_request_trip" and websocket in self.passengers:
                 # Actualizar ubicación de pasajero
                 await self._cancel_request_trip(websocket, message_data) # {trip_id, agent}
@@ -567,11 +571,19 @@ class ConnectionManager:
                     return
                 # Obtener la informacion del conductor que sugiere la tarifa
                 driver_info = self.connection_info[websocket]
+                profile = driver_info.get("profile", {})
+                vehicle = driver_info.get("vehicles", [])[0]
                 success_msg = create_success_message({
                     "trip_id": trip_id,
                     "price": price,
-                    "vehicle": driver_info.get("vehicles", [])[0],
-                    "driver": driver_info.get("profile")
+                    "vehicle_id": vehicle.get("id"),
+                    "vehicle_name": vehicle.get("license_plate"),
+                    "vehicle_description": f"{vehicle.get("brand")} {vehicle.get("model")} {vehicle.get("year")}",
+                    "vehicle_color": vehicle.get("color"),
+                    "driver_id": profile.get("id"),
+                    "driver_avatar": profile.get("avatar_url"),
+                    "driver_name": profile.get("full_name"),
+                    "driver_initials": profile.get("initials"),
                 }, "suggest_tarifa_from_driver")
                 # Buscar al pasajero que solicito el viaje
                 passenger_id = self.current_trips[trip_id]["requester_id"]
@@ -587,6 +599,58 @@ class ConnectionManager:
         except (ValueError, TypeError) as e:
             error_msg = create_error_message(
                 f"Error al sugerir nueva tarifa a pasajeros: {e}"
+            )
+            await self._send_message(websocket, error_msg)
+
+    async def _accept_request_trip(
+        self, websocket: websockets.WebSocketServerProtocol, data: Dict[str, Any]
+    ):
+        """
+        Cancela la solicitud de un pedido de viaje.
+
+        Args:
+            websocket: Conexión WebSocket del pasajero
+            data: Datos del mensaje con nueva tarifa
+        """
+        try:
+            trip_id = data.get("trip_id")
+            price = data.get("price")
+            vehicle_id = data.get("vehicle_id")
+            vehicle_plate = data.get("vehicle_name")
+            driver_id = data.get("driver_id")
+            if not all((trip_id, price, vehicle_plate, driver_id)):
+                error_msg = create_error_message("Campos requeridos faltantes")
+                await self._send_message(websocket, error_msg)
+                return
+            if trip_id in self.current_trips:
+                updated_data = {
+                    "driver_id": driver_id,
+                    "vehicle_id": vehicle_id,
+                    "actual_fare": price,
+                    "status": "accepted",
+                    "accepted_at" : datetime.datetime.utcnow().isoformat() + "Z",
+                }
+                # Actualizar en la base de datos
+                await self.api_client.update_trip(trip_id, updated_data,self.passengers[websocket]["token"])
+                self.current_trips[trip_id]["status"] = "accepted"
+                self.current_trips[trip_id]["price"] = price
+                self.current_trips[trip_id]["driver_id"] = driver_id
+                # Devolver el viaje al emisor
+                succes_message = create_success_message(self.current_trips[trip_id], "current_trip")
+                await self._send_message(websocket, succes_message)
+                # Buscar al receptor
+                type = self.connection_info[websocket]["type"]
+                ws = None
+                if type == "passenger":
+                    ws = self.drivers[vehicle_plate]["websocket"]
+                else:
+                    ws = self.user_to_ws.get(self.current_trips[trip_id]["requester_id"])
+                if ws:
+                    await self._send_message(ws, succes_message)
+                
+        except (ValueError, TypeError) as e:
+            error_msg = create_error_message(
+                f"Error al aceptar el viaje: {e}"
             )
             await self._send_message(websocket, error_msg)
 
