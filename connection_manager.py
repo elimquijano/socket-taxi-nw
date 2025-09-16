@@ -606,11 +606,11 @@ class ConnectionManager:
         self, websocket: websockets.WebSocketServerProtocol, data: Dict[str, Any]
     ):
         """
-        Cancela la solicitud de un pedido de viaje.
+        Acepta una solicitud de viaje.
 
         Args:
-            websocket: Conexión WebSocket del pasajero
-            data: Datos del mensaje con nueva tarifa
+            websocket: Conexión WebSocket del cliente que acepta
+            data: Datos del mensaje con los detalles de la aceptación
         """
         try:
             trip_id = data.get("trip_id")
@@ -622,7 +622,23 @@ class ConnectionManager:
                 error_msg = create_error_message("Campos requeridos faltantes")
                 await self._send_message(websocket, error_msg)
                 return
+            
             if trip_id in self.current_trips:
+                # Determinar el tipo de usuario y obtener el token de autenticación
+                user_type = self.connection_info[websocket]["type"]
+                token = None
+                if user_type == "passenger":
+                    token = self.passengers[websocket].get("token")
+                elif user_type == "driver":
+                    driver_data = self.drivers.get(vehicle_plate)
+                    if driver_data and driver_data["websocket"] == websocket:
+                        token = driver_data.get("token")
+
+                if not token:
+                    error_msg = create_error_message("No se pudo autenticar al usuario para actualizar el viaje.", "AUTH_ERROR")
+                    await self._send_message(websocket, error_msg)
+                    return
+
                 updated_data = {
                     "driver_id": driver_id,
                     "vehicle_id": vehicle_id,
@@ -631,26 +647,30 @@ class ConnectionManager:
                     "accepted_at" : datetime.datetime.utcnow().isoformat() + "Z",
                 }
                 # Actualizar en la base de datos
-                await self.api_client.update_trip(trip_id, updated_data,self.passengers[websocket]["token"])
+                await self.api_client.update_trip(trip_id, updated_data, token)
+                
                 self.current_trips[trip_id]["status"] = "accepted"
                 self.current_trips[trip_id]["price"] = price
                 self.current_trips[trip_id]["driver_id"] = driver_id
+                
                 # Devolver el viaje al emisor
                 succes_message = create_success_message(self.current_trips[trip_id], "current_trip")
                 await self._send_message(websocket, succes_message)
-                # Buscar al receptor
-                type = self.connection_info[websocket]["type"]
+                
+                # Buscar al receptor y enviarle la confirmación
                 ws = None
-                if type == "passenger":
-                    ws = self.drivers[vehicle_plate]["websocket"]
-                else:
-                    ws = self.user_to_ws.get(self.current_trips[trip_id]["requester_id"])
+                if user_type == "passenger":
+                    ws = self.drivers.get(vehicle_plate, {}).get("websocket")
+                else: # driver
+                    requester_id = self.current_trips[trip_id].get("requester_id")
+                    ws = self.user_to_ws.get(requester_id)
+                
                 if ws:
                     await self._send_message(ws, succes_message)
                 
-        except (ValueError, TypeError) as e:
+        except (ValueError, TypeError, KeyError) as e:
             error_msg = create_error_message(
-                f"Error al aceptar el viaje: {e}"
+                f"Error al aceptar el viaje: {e}", "ACCEPT_TRIP_ERROR"
             )
             await self._send_message(websocket, error_msg)
 
